@@ -70,6 +70,88 @@ response = session.get("https://httpbin.org/ip", timeout=20)
 print(response.text)
 ```
 
+## Run multiple scrape targets
+
+```python
+import re
+
+from rotate_session import RotateSessionMulti, ScrapeTarget
+
+
+class QuotePageScraper(RotateSessionMulti):
+    def extract_once(self, from_scrape, progress_text=""):
+        quotes = re.findall(
+            r'<span class="text" itemprop="text">(.*?)</span>',
+            from_scrape.text,
+        )
+        return quotes[:3]
+
+
+scraper = QuotePageScraper(
+    targets=[
+        ScrapeTarget(
+            url="https://quotes.toscrape.com/page/1/",
+            kwargs={"timeout": 20},
+        ),
+        ScrapeTarget(
+            url="https://quotes.toscrape.com/page/2/",
+            kwargs={"timeout": 20},
+        ),
+    ],
+    global_params={"source": "quotes.toscrape.com"},
+    num_threads=2,
+)
+
+results = scraper.run()
+print(results)
+```
+
+`ScrapeTarget` is the default target model. The base
+`scrape_once(session, target, progress_text="")` uses its `url`, optional
+`params`, and optional request `kwargs`. It can also validate compatible
+dictionaries with the same keys.
+
+For custom target shapes, use dictionaries and override both hooks:
+
+```python
+import html
+import re
+
+from rotate_session import RotateSessionMulti
+
+
+class QuoteTagScraper(RotateSessionMulti):
+    def scrape_once(self, session, target, progress_text=""):
+        response = session.get(
+            f"{self.global_params['base_url']}/tag/{target['tag']}/",
+            timeout=20,
+        )
+        return {"tag": target["tag"], "html": response.text}
+
+    def extract_once(self, from_scrape, progress_text=""):
+        quotes = re.findall(
+            r'<span class="text" itemprop="text">(.*?)</span>',
+            from_scrape["html"],
+        )
+        return {
+            "tag": from_scrape["tag"],
+            "quotes": [html.unescape(quote) for quote in quotes[:2]],
+        }
+
+
+scraper = QuoteTagScraper(
+    targets=[
+        {"tag": "love"},
+        {"tag": "humor"},
+    ],
+    global_params={"base_url": "https://quotes.toscrape.com"},
+    num_threads=2,
+)
+
+results = scraper.run()
+print(results)
+```
+
 ## Notes
 
 - Logging, documentation and README were generated with AI.
